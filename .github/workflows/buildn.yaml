@@ -149,20 +149,31 @@ jobs:
 
       - name: Configure CMake with Vulkan + LLVM toolchain
         id: cmake_configure
+        shell: cmd
         run: |
-          # Expand CMAKE_DEFINES and run cmake
-          $defines = $env:CMAKE_DEFINES -split ' ' | Where-Object { $_ -ne '' }
-          cmake -S . -B build @defines `
-            -DCMAKE_C_COMPILER_LAUNCHER=ccache `
-            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache `
-            -DCMAKE_PREFIX_PATH="C:\VulkanSDK\${env:VULKAN_VERSION}"
+          call "C:\Program Files\Microsoft Visual Studio\2026\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=amd64 -host_arch=amd64
+          cmake -S . -B build ^
+            -G "Ninja" ^
+            -DCMAKE_BUILD_TYPE=Release ^
+            -DCMAKE_TOOLCHAIN_FILE=cmake/x64-windows-llvm.cmake ^
+            -DGGML_VULKAN=ON ^
+            -DGGML_NATIVE=OFF ^
+            -DGGML_BACKEND_DL=ON ^
+            -DGGML_CPU_ALL_VARIANTS=ON ^
+            -DGGML_RPC=ON ^
+            -DLLAMA_BUILD_SERVER=ON ^
+            -DLLAMA_BUILD_BORINGSSL=ON ^
+            -DLLAMA_FATAL_WARNINGS=ON ^
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache ^
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache ^
+            -DCMAKE_PREFIX_PATH="C:\VulkanSDK\%VULKAN_VERSION%"
 
       - name: Build llama.cpp
         id: cmake_build
+        shell: cmd
         run: |
-          $jobs = [System.Environment]::ProcessorCount
-          cmake --build build --config Release -j $jobs
-
+          call "C:\Program Files\Microsoft Visual Studio\2026\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=amd64 -host_arch=amd64
+          cmake --build build --config Release -j %NUMBER_OF_PROCESSORS%
 
       - name: Upload build artifacts
         if: always()
