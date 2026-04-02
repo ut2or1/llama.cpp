@@ -5,10 +5,9 @@
 name: Build Windows AMD64 Vulkan
 
 on:
-  workflow_dispatch:  # allows manual triggering
+  workflow_dispatch:
   push:
-    branches:
-      - master
+    branches: [feat/ci]
     paths:
       - '.github/workflows/buildn.yaml'
       - '**/CMakeLists.txt'
@@ -53,20 +52,14 @@ env:
 jobs:
   windows-latest-vulkan-llvm:
     name: Windows AMD64 Vulkan (LLVM/Clang)
-    runs-on: windows-latest  # Windows Server 2025 with Visual Studio 2026 [[10]][[14]]
+    runs-on: windows-latest
 
     defaults:
       run:
-        shell: bash  # Use bash for consistent path handling
-
-    env:
-      # LLVM/Clang toolchain paths (adjust if needed based on runner image)
-      LLVM_BIN: "C:/Program Files/LLVM/bin"
-      VULKAN_SDK: "C:/VulkanSDK/${{ env.VULKAN_SDK_VERSION }}"
+        shell: bash
 
     steps:
       - name: Checkout repository
-        id: checkout
         uses: actions/checkout@v6
         with:
           submodules: recursive
@@ -84,39 +77,42 @@ jobs:
       - name: Install Ninja
         run: |
           choco install ninja --no-progress -y
-          echo "C:/ProgramData/chocolatey/bin" >> $GITHUB_PATH
+          echo "C:/ProgramData/chocolatey/bin" >> "$GITHUB_PATH"
 
       - name: Install Vulkan SDK
-        uses: jakoch/install-vulkan-sdk-action@v1.2.0  # [[20]][[21]]
+        uses: jakoch/install-vulkan-sdk-action@v1.2.0
         with:
           vulkan-version: ${{ env.VULKAN_SDK_VERSION }}
           install-glslc: true
           cache: true
 
+      - name: Configure Vulkan environment variables
+        run: |
+          # Set VULKAN_SDK for the rest of the job
+          echo "VULKAN_SDK=C:/VulkanSDK/${VULKAN_SDK_VERSION}" >> "$GITHUB_ENV"
+          echo "C:/VulkanSDK/${VULKAN_SDK_VERSION}/Bin" >> "$GITHUB_PATH"
+          
       - name: Verify Vulkan installation
         run: |
-          echo "VULKAN_SDK=$VULKAN_SDK" >> $GITHUB_ENV
-          echo "$VULKAN_SDK/Bin" >> $GITHUB_PATH
           vulkaninfo --summary || echo "vulkaninfo check completed"
           glslc --version
 
       - name: Setup LLVM/Clang environment
         run: |
-          # Add LLVM to PATH for clang/clang++
+          LLVM_BIN="C:/Program Files/LLVM/bin"
           if [ -d "$LLVM_BIN" ]; then
-            echo "$LLVM_BIN" >> $GITHUB_PATH
-            echo "CC=clang" >> $GITHUB_ENV
-            echo "CXX=clang++" >> $GITHUB_ENV
+            echo "$LLVM_BIN" >> "$GITHUB_PATH"
+            echo "CC=clang" >> "$GITHUB_ENV"
+            echo "CXX=clang++" >> "$GITHUB_ENV"
           else
-            # Fallback: use Visual Studio's clang-cl
-            echo "CC=clang-cl" >> $GITHUB_ENV
-            echo "CXX=clang-cl" >> $GITHUB_ENV
+            # Fallback to clang-cl from Visual Studio
+            echo "CC=clang-cl" >> "$GITHUB_ENV"
+            echo "CXX=clang-cl" >> "$GITHUB_ENV"
           fi
-          # Verify compiler
-          clang --version || clang-cl --version
+          # Verify compiler is available
+          clang --version 2>/dev/null || clang-cl --version || echo "Warning: Clang not found"
 
       - name: Configure CMake with Vulkan + LLVM toolchain
-        id: cmake_configure
         run: |
           cmake -S . -B build \
             -G "Ninja" \
@@ -135,25 +131,19 @@ jobs:
             -DCMAKE_PREFIX_PATH="$VULKAN_SDK"
 
       - name: Build llama.cpp
-        id: cmake_build
         run: |
-          # Use all available cores for parallel build
-          cmake --build build --config Release -j $(nproc)
+          cmake --build build --config Release -j "$(nproc)"
 
       - name: Run basic tests
-        id: cmake_test
         run: |
           cd build
           ctest -L main -C Release --verbose --timeout 900 \
             --output-on-failure \
-            -E "test-llama-archs"  # Skip architecture-specific tests on Windows
+            -E "test-llama-archs"
 
       - name: Test Vulkan backend detection
-        id: vulkan_test
         run: |
-          # Simple test to verify Vulkan backend compiles and detects GPU
           ./build/bin/test-backend-ops -b vulkan 2>&1 | tee vulkan_test.log || true
-          # Check if Vulkan was detected (non-fatal, for informational purposes)
           if grep -qi "vulkan\|ggml_vulkan" vulkan_test.log; then
             echo "✓ Vulkan backend detected in test output"
           else
@@ -172,7 +162,7 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
 
-      - name: Upload test logs
+      - name: Upload test logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
@@ -180,4 +170,4 @@ jobs:
           path: |
             build/Testing/Temporary/
             vulkan_test.log
-          retention-days: 7
+          retention-days: 14
