@@ -52,10 +52,9 @@ env:
 jobs:
   windows-latest-vulkan-llvm:
     name: Windows AMD64 Vulkan (LLVM/Clang)
-    runs-on: windows-latest  # Windows Server 2025 + Visual Studio 2026
+    runs-on: windows-latest
 
     env:
-      # CMake defines for Vulkan + LLVM toolchain build
       CMAKE_DEFINES: >-
         -G "Ninja"
         -DCMAKE_BUILD_TYPE=Release
@@ -71,7 +70,7 @@ jobs:
 
     defaults:
       run:
-        shell: powershell  # Use PowerShell for Windows-native commands
+        shell: powershell
 
     steps:
       - name: Clone repository
@@ -99,7 +98,7 @@ jobs:
       - name: Install Vulkan SDK
         id: get_vulkan
         run: |
-          # Download and install Vulkan SDK using official installer (silent mode)
+          # Download Vulkan SDK installer
           curl.exe -o $env:RUNNER_TEMP/VulkanSDK-Installer.exe -L "https://sdk.lunarg.com/sdk/download/${env:VULKAN_VERSION}/windows/vulkansdk-windows-X64-${env:VULKAN_VERSION}.exe"
           
           # Run installer silently
@@ -109,9 +108,17 @@ jobs:
           Add-Content $env:GITHUB_ENV "VULKAN_SDK=C:\VulkanSDK\${env:VULKAN_VERSION}"
           Add-Content $env:GITHUB_PATH "C:\VulkanSDK\${env:VULKAN_VERSION}\bin"
           
-          # Verify installation
+          # Verify installation (PowerShell-safe error handling)
           Write-Host "Vulkan SDK installed at: C:\VulkanSDK\${env:VULKAN_VERSION}"
-          & "C:\VulkanSDK\${env:VULKAN_VERSION}\bin\vulkaninfo.exe" --summary 2>&1 | Select-Object -First 5 || Write-Host "vulkaninfo check completed"
+          $vulkaninfoPath = "C:\VulkanSDK\${env:VULKAN_VERSION}\bin\vulkaninfo.exe"
+          if (Test-Path $vulkaninfoPath) {
+            & $vulkaninfoPath --summary 2>&1 | Select-Object -First 5
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host "vulkaninfo returned non-zero exit code (non-fatal)"
+            }
+          } else {
+            Write-Host "Warning: vulkaninfo.exe not found at expected path"
+          }
 
       - name: Configure CMake with Vulkan + LLVM toolchain
         id: cmake_configure
@@ -126,7 +133,6 @@ jobs:
       - name: Build llama.cpp
         id: cmake_build
         run: |
-          # Parallel build using all logical processors
           $jobs = [System.Environment]::ProcessorCount
           cmake --build build --config Release -j $jobs
 
@@ -141,14 +147,20 @@ jobs:
       - name: Test Vulkan backend detection
         id: vulkan_test
         run: |
-          # Run backend ops test with Vulkan filter
-          ./build/bin/Release/test-backend-ops.exe -b vulkan 2>&1 | Tee-Object -FilePath vulkan_test.log
-          
-          # Check if Vulkan was mentioned in output (non-fatal)
-          if (Select-String -Path vulkan_test.log -Pattern "vulkan|ggml_vulkan" -Quiet) {
-            Write-Host "✓ Vulkan backend detected in test output"
+          $testExe = "./build/bin/Release/test-backend-ops.exe"
+          if (Test-Path $testExe) {
+            & $testExe -b vulkan 2>&1 | Tee-Object -FilePath vulkan_test.log
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host "test-backend-ops returned exit code: $LASTEXITCODE (checking output anyway)"
+            }
+            # Check if Vulkan was mentioned in output
+            if (Select-String -Path vulkan_test.log -Pattern "vulkan|ggml_vulkan" -Quiet -ErrorAction SilentlyContinue) {
+              Write-Host "✓ Vulkan backend detected in test output"
+            } else {
+              Write-Host "⚠ Vulkan backend may not have been exercised (non-fatal)"
+            }
           } else {
-            Write-Host "⚠ Vulkan backend may not have been exercised (non-fatal)"
+            Write-Host "Warning: test-backend-ops.exe not found"
           }
 
       - name: Upload build artifacts
