@@ -206,15 +206,37 @@ jobs:
           call "%VS_INSTALL_PATH%\Common7\Tools\VsDevCmd.bat" -arch=amd64 -host_arch=amd64
           cmake --build build --config Release -j %NUMBER_OF_PROCESSORS%
 
+      - name: Compress build/bin to 7z archive
+        id: compress_artifact
+        run: |
+          # Ensure 7-Zip is available (pre-installed on most Windows runners)
+          $sevenZip = "7z"
+          if (-not (Get-Command $sevenZip -ErrorAction SilentlyContinue)) {
+            Write-Host "7-Zip not found in PATH, installing..."
+            choco install 7zip --no-progress -y
+            $sevenZip = "C:\Program Files\7-Zip\7z.exe"
+          }
+          
+          # Create archive with maximum compression (LZMA2, level 9)
+          $archiveName = "llama-windows-x64-vulkan-llvm-bin.7z"
+          $sourcePath = "build/bin"
+          
+          Write-Host "Compressing $sourcePath to $archiveName with maximum compression..."
+          & $sevenZip a -t7z "$archiveName" "$sourcePath\*" `
+            -m0=lzma2 -mx=9 -mfb=64 -md=32m -ms=on `
+            -sse -slt -y
+          
+          # Output archive info
+          $archiveSize = (Get-Item $archiveName).Length / 1MB
+          Write-Host "Archive created: $archiveName ($([math]::Round($archiveSize, 2)) MB)"
+          Add-Content $env:GITHUB_ENV "ARTIFACT_ARCHIVE=$archiveName"
+
       - name: Upload build artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: llama-windows-x64-vulkan-llvm
-          path: |
-            build/bin/*.exe
-            build/bin/*.dll
-            build/lib/*.lib
+          path: ${{ env.ARTIFACT_ARCHIVE }}
           retention-days: 7
           if-no-files-found: warn
 
