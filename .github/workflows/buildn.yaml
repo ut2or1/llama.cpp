@@ -152,10 +152,9 @@ jobs:
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\18\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=amd64 -host_arch=amd64
-          cmake -S . -B build ^
+          cmake --preset x64-windows-llvm-release ^
             -G "Ninja" ^
             -DCMAKE_BUILD_TYPE=Release ^
-            -DCMAKE_TOOLCHAIN_FILE=cmake/x64-windows-llvm.cmake ^
             -DGGML_VULKAN=ON ^
             -DGGML_NATIVE=OFF ^
             -DGGML_BACKEND_DL=ON ^
@@ -173,7 +172,7 @@ jobs:
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\18\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=amd64 -host_arch=amd64
-          cmake --build build --config Release -j %NUMBER_OF_PROCESSORS%
+          cmake --build x64-windows-llvm-release --config Release -j %NUMBER_OF_PROCESSORS%
 
       - name: Upload build artifacts
         if: always()
