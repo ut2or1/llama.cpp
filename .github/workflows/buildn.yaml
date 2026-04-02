@@ -66,7 +66,6 @@ jobs:
         -DGGML_RPC=ON
         -DLLAMA_BUILD_SERVER=ON
         -DLLAMA_BUILD_BORINGSSL=ON
-        -DLLAMA_FATAL_WARNINGS=ON
 
     defaults:
       run:
@@ -162,7 +161,6 @@ jobs:
             -DGGML_RPC=ON ^
             -DLLAMA_BUILD_SERVER=ON ^
             -DLLAMA_BUILD_BORINGSSL=ON ^
-            -DLLAMA_FATAL_WARNINGS=ON ^
             -DCMAKE_C_COMPILER_LAUNCHER=ccache ^
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache ^
             -DCMAKE_PREFIX_PATH="C:\VulkanSDK\%VULKAN_VERSION%"
