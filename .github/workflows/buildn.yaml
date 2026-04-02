@@ -1,8 +1,8 @@
 # .github/workflows/buildn.yaml
-# Windows AMD64 Vulkan build using x64-windows-llvm-release toolchain
+# Windows AMD64 Vulkan build using x64-windows-llvm.cmake toolchain
 # with Visual Studio 2026 environment on windows-latest runner
 
-name: Build Windows AMD64 Vulkan
+name: Build Windows AMD64 Vulkan (LLVM)
 
 on:
   workflow_dispatch:
@@ -42,7 +42,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  VULKAN_SDK_VERSION: "1.4.313.2"
+  VULKAN_VERSION: 1.4.313.2
   GGML_NLOOP: 3
   GGML_N_THREADS: 1
   LLAMA_LOG_COLORS: 1
@@ -52,14 +52,30 @@ env:
 jobs:
   windows-latest-vulkan-llvm:
     name: Windows AMD64 Vulkan (LLVM/Clang)
-    runs-on: windows-latest
+    runs-on: windows-latest  # Windows Server 2025 + Visual Studio 2026
+
+    env:
+      # CMake defines for Vulkan + LLVM toolchain build
+      CMAKE_DEFINES: >-
+        -G "Ninja"
+        -DCMAKE_BUILD_TYPE=Release
+        -DCMAKE_TOOLCHAIN_FILE=cmake/x64-windows-llvm.cmake
+        -DGGML_VULKAN=ON
+        -DGGML_NATIVE=OFF
+        -DGGML_BACKEND_DL=ON
+        -DGGML_CPU_ALL_VARIANTS=ON
+        -DGGML_RPC=ON
+        -DLLAMA_BUILD_SERVER=ON
+        -DLLAMA_BUILD_BORINGSSL=ON
+        -DLLAMA_FATAL_WARNINGS=ON
 
     defaults:
       run:
-        shell: bash
+        shell: powershell  # Use PowerShell for Windows-native commands
 
     steps:
-      - name: Checkout repository
+      - name: Clone repository
+        id: checkout
         uses: actions/checkout@v6
         with:
           submodules: recursive
@@ -75,80 +91,65 @@ jobs:
           max-size: 2G
 
       - name: Install Ninja
+        id: install_ninja
         run: |
           choco install ninja --no-progress -y
-          echo "C:/ProgramData/chocolatey/bin" >> "$GITHUB_PATH"
+          echo "C:/ProgramData/chocolatey/bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Install Vulkan SDK
-        uses: jakoch/install-vulkan-sdk-action@v1.2.0
-        with:
-          vulkan-version: ${{ env.VULKAN_SDK_VERSION }}
-          install-glslc: true
-          cache: true
-
-      - name: Configure Vulkan environment variables
+        id: get_vulkan
         run: |
-          # Set VULKAN_SDK for the rest of the job
-          echo "VULKAN_SDK=C:/VulkanSDK/${VULKAN_SDK_VERSION}" >> "$GITHUB_ENV"
-          echo "C:/VulkanSDK/${VULKAN_SDK_VERSION}/Bin" >> "$GITHUB_PATH"
+          # Download and install Vulkan SDK using official installer (silent mode)
+          curl.exe -o $env:RUNNER_TEMP/VulkanSDK-Installer.exe -L "https://sdk.lunarg.com/sdk/download/${env:VULKAN_VERSION}/windows/vulkansdk-windows-X64-${env:VULKAN_VERSION}.exe"
           
-      - name: Verify Vulkan installation
-        run: |
-          vulkaninfo --summary || echo "vulkaninfo check completed"
-          glslc --version
-
-      - name: Setup LLVM/Clang environment
-        run: |
-          LLVM_BIN="C:/Program Files/LLVM/bin"
-          if [ -d "$LLVM_BIN" ]; then
-            echo "$LLVM_BIN" >> "$GITHUB_PATH"
-            echo "CC=clang" >> "$GITHUB_ENV"
-            echo "CXX=clang++" >> "$GITHUB_ENV"
-          else
-            # Fallback to clang-cl from Visual Studio
-            echo "CC=clang-cl" >> "$GITHUB_ENV"
-            echo "CXX=clang-cl" >> "$GITHUB_ENV"
-          fi
-          # Verify compiler is available
-          clang --version 2>/dev/null || clang-cl --version || echo "Warning: Clang not found"
+          # Run installer silently
+          & "$env:RUNNER_TEMP\VulkanSDK-Installer.exe" --accept-licenses --default-answer --confirm-command install
+          
+          # Set environment variables for subsequent steps
+          Add-Content $env:GITHUB_ENV "VULKAN_SDK=C:\VulkanSDK\${env:VULKAN_VERSION}"
+          Add-Content $env:GITHUB_PATH "C:\VulkanSDK\${env:VULKAN_VERSION}\bin"
+          
+          # Verify installation
+          Write-Host "Vulkan SDK installed at: C:\VulkanSDK\${env:VULKAN_VERSION}"
+          & "C:\VulkanSDK\${env:VULKAN_VERSION}\bin\vulkaninfo.exe" --summary 2>&1 | Select-Object -First 5 || Write-Host "vulkaninfo check completed"
 
       - name: Configure CMake with Vulkan + LLVM toolchain
+        id: cmake_configure
         run: |
-          cmake -S . -B build \
-            -G "Ninja" \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_TOOLCHAIN_FILE=cmake/x64-windows-llvm.cmake \
-            -DGGML_VULKAN=ON \
-            -DGGML_NATIVE=OFF \
-            -DGGML_BACKEND_DL=ON \
-            -DGGML_CPU_ALL_VARIANTS=ON \
-            -DGGML_RPC=ON \
-            -DLLAMA_BUILD_SERVER=ON \
-            -DLLAMA_BUILD_BORINGSSL=ON \
-            -DLLAMA_FATAL_WARNINGS=ON \
-            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_PREFIX_PATH="$VULKAN_SDK"
+          # Expand CMAKE_DEFINES and run cmake
+          $defines = $env:CMAKE_DEFINES -split ' ' | Where-Object { $_ -ne '' }
+          cmake -S . -B build @defines `
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache `
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache `
+            -DCMAKE_PREFIX_PATH="C:\VulkanSDK\${env:VULKAN_VERSION}"
 
       - name: Build llama.cpp
+        id: cmake_build
         run: |
-          cmake --build build --config Release -j "$(nproc)"
+          # Parallel build using all logical processors
+          $jobs = [System.Environment]::ProcessorCount
+          cmake --build build --config Release -j $jobs
 
       - name: Run basic tests
+        id: cmake_test
         run: |
           cd build
-          ctest -L main -C Release --verbose --timeout 900 \
-            --output-on-failure \
+          ctest -L main -C Release --verbose --timeout 900 `
+            --output-on-failure `
             -E "test-llama-archs"
 
       - name: Test Vulkan backend detection
+        id: vulkan_test
         run: |
-          ./build/bin/test-backend-ops -b vulkan 2>&1 | tee vulkan_test.log || true
-          if grep -qi "vulkan\|ggml_vulkan" vulkan_test.log; then
-            echo "✓ Vulkan backend detected in test output"
-          else
-            echo "⚠ Vulkan backend may not have been exercised (non-fatal)"
-          fi
+          # Run backend ops test with Vulkan filter
+          ./build/bin/Release/test-backend-ops.exe -b vulkan 2>&1 | Tee-Object -FilePath vulkan_test.log
+          
+          # Check if Vulkan was mentioned in output (non-fatal)
+          if (Select-String -Path vulkan_test.log -Pattern "vulkan|ggml_vulkan" -Quiet) {
+            Write-Host "✓ Vulkan backend detected in test output"
+          } else {
+            Write-Host "⚠ Vulkan backend may not have been exercised (non-fatal)"
+          }
 
       - name: Upload build artifacts
         if: always()
