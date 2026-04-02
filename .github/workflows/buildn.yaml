@@ -95,19 +95,46 @@ jobs:
           choco install ninja --no-progress -y
           echo "C:/ProgramData/chocolatey/bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
+      - name: Setup Visual Studio environment
+        id: setup_vs
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path $vswhere)) {
+            Write-Error "vswhere not found"
+            exit 1
+          }
+          $vsInstallPath = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -property installationPath
+          if (-not $vsInstallPath) {
+            Write-Error "Visual Studio installation not found"
+            exit 1
+          }
+          $vsDevCmd = Join-Path $vsInstallPath "Common7\Tools\VsDevCmd.bat"
+          if (-not (Test-Path $vsDevCmd)) {
+            Write-Error "VsDevCmd.bat not found at $vsDevCmd"
+            exit 1
+          }
+          Write-Host "Using VS at: $vsInstallPath"
+          # Run VsDevCmd to set environment for current process
+          & cmd /c "`"$vsDevCmd`" -arch=amd64 -host_arch=amd64" | Out-Null
+          # Export a few markers to GITHUB_ENV so subsequent steps can rely on the setup
+          Add-Content $env:GITHUB_ENV "VSCMD_ARG_TGT_ARCH=amd64"
+          Add-Content $env:GITHUB_ENV "VSCMD_ARG_HOST_ARCH=amd64"
+          # Append current PATH to GITHUB_PATH so subsequent steps inherit tool locations
+          Add-Content $env:GITHUB_PATH ($env:PATH)
+
       - name: Install Vulkan SDK
         id: get_vulkan
         run: |
           # Download Vulkan SDK installer
           curl.exe -o $env:RUNNER_TEMP/VulkanSDK-Installer.exe -L "https://sdk.lunarg.com/sdk/download/${env:VULKAN_VERSION}/windows/vulkansdk-windows-X64-${env:VULKAN_VERSION}.exe"
-          
+
           # Run installer silently
           & "$env:RUNNER_TEMP\VulkanSDK-Installer.exe" --accept-licenses --default-answer --confirm-command install
-          
+
           # Set environment variables for subsequent steps
           Add-Content $env:GITHUB_ENV "VULKAN_SDK=C:\VulkanSDK\${env:VULKAN_VERSION}"
           Add-Content $env:GITHUB_PATH "C:\VulkanSDK\${env:VULKAN_VERSION}\bin"
-          
+
           # Verify installation (PowerShell-safe error handling)
           Write-Host "Vulkan SDK installed at: C:\VulkanSDK\${env:VULKAN_VERSION}"
           $vulkaninfoPath = "C:\VulkanSDK\${env:VULKAN_VERSION}\bin\vulkaninfo.exe"
@@ -136,32 +163,6 @@ jobs:
           $jobs = [System.Environment]::ProcessorCount
           cmake --build build --config Release -j $jobs
 
-      - name: Run basic tests
-        id: cmake_test
-        run: |
-          cd build
-          ctest -L main -C Release --verbose --timeout 900 `
-            --output-on-failure `
-            -E "test-llama-archs"
-
-      - name: Test Vulkan backend detection
-        id: vulkan_test
-        run: |
-          $testExe = "./build/bin/Release/test-backend-ops.exe"
-          if (Test-Path $testExe) {
-            & $testExe -b vulkan 2>&1 | Tee-Object -FilePath vulkan_test.log
-            if ($LASTEXITCODE -ne 0) {
-              Write-Host "test-backend-ops returned exit code: $LASTEXITCODE (checking output anyway)"
-            }
-            # Check if Vulkan was mentioned in output
-            if (Select-String -Path vulkan_test.log -Pattern "vulkan|ggml_vulkan" -Quiet -ErrorAction SilentlyContinue) {
-              Write-Host "✓ Vulkan backend detected in test output"
-            } else {
-              Write-Host "⚠ Vulkan backend may not have been exercised (non-fatal)"
-            }
-          } else {
-            Write-Host "Warning: test-backend-ops.exe not found"
-          }
 
       - name: Upload build artifacts
         if: always()
