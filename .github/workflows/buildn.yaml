@@ -115,6 +115,8 @@ jobs:
           Write-Host "Using VS at: $vsInstallPath"
           # Run VsDevCmd to set environment for current process
           & cmd /c "`"$vsDevCmd`" -arch=amd64 -host_arch=amd64" | Out-Null
+          # Export VS install path for use in CMD steps
+          Add-Content $env:GITHUB_ENV "VS_INSTALL_PATH=$vsInstallPath"
           # Export a few markers to GITHUB_ENV so subsequent steps can rely on the setup
           Add-Content $env:GITHUB_ENV "VSCMD_ARG_TGT_ARCH=amd64"
           Add-Content $env:GITHUB_ENV "VSCMD_ARG_HOST_ARCH=amd64"
@@ -150,10 +152,11 @@ jobs:
         id: cmake_configure
         shell: cmd
         run: |
-          call "C:\Program Files\Microsoft Visual Studio\18\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=amd64 -host_arch=amd64
-          cmake --preset x64-windows-llvm-release ^
+          call "%VS_INSTALL_PATH%\Common7\Tools\VsDevCmd.bat" -arch=amd64 -host_arch=amd64
+          cmake -S . -B build ^
             -G "Ninja" ^
             -DCMAKE_BUILD_TYPE=Release ^
+            -DCMAKE_TOOLCHAIN_FILE=cmake/x64-windows-llvm.cmake ^
             -DGGML_VULKAN=ON ^
             -DGGML_NATIVE=OFF ^
             -DGGML_BACKEND_DL=ON ^
@@ -169,8 +172,8 @@ jobs:
         id: cmake_build
         shell: cmd
         run: |
-          call "C:\Program Files\Microsoft Visual Studio\18\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=amd64 -host_arch=amd64
-          cmake --build build-x64-windows-llvm-release --config Release -j %NUMBER_OF_PROCESSORS%
+          call "%VS_INSTALL_PATH%\Common7\Tools\VsDevCmd.bat" -arch=amd64 -host_arch=amd64
+          cmake --build build --config Release -j %NUMBER_OF_PROCESSORS%
 
       - name: Upload build artifacts
         if: always()
