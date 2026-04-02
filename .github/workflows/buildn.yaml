@@ -42,7 +42,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  VULKAN_VERSION: 1.4.313.2
+  VULKAN_VERSION: 1.4.341.1
   GGML_NLOOP: 3
   GGML_N_THREADS: 1
   LLAMA_LOG_COLORS: 1
