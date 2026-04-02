@@ -67,6 +67,8 @@ jobs:
         -DLLAMA_BUILD_SERVER=ON
         -DLLAMA_BUILD_BORINGSSL=ON
 
+      SHOULD_SAVE_CACHE: ${{ (github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/feat/ci'))}}
+      
     defaults:
       run:
         shell: powershell
@@ -85,7 +87,7 @@ jobs:
           key: windows-latest-vulkan-llvm-x64
           variant: ccache
           evict-old-files: 1d
-          save: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+          save: ${{ env.SHOULD_SAVE_CACHE }}
           max-size: 2G
 
       - name: Install Ninja
@@ -181,9 +183,9 @@ jobs:
         with:
           name: llama-windows-x64-vulkan-llvm
           path: |
-            build/bin/Release/*.exe
-            build/bin/Release/*.dll
-            build/lib/Release/*.lib
+            build/bin/*.exe
+            build/bin/*.dll
+            build/lib/*.lib
           retention-days: 7
           if-no-files-found: warn
 
