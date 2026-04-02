@@ -172,7 +172,7 @@ jobs:
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\18\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=amd64 -host_arch=amd64
-          cmake --build x64-windows-llvm-release --config Release -j %NUMBER_OF_PROCESSORS%
+          cmake --build build-x64-windows-llvm-release --config Release -j %NUMBER_OF_PROCESSORS%
 
       - name: Upload build artifacts
         if: always()
