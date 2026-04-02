@@ -125,8 +125,19 @@ jobs:
           # Append current PATH to GITHUB_PATH so subsequent steps inherit tool locations
           Add-Content $env:GITHUB_PATH ($env:PATH)
 
+      - name: Cache Vulkan SDK
+        id: cache-vulkan
+        uses: actions/cache@v5
+        with:
+          path: C:\VulkanSDK
+          key: vulkan-sdk-${{ env.VULKAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}
+          restore-keys: |
+            vulkan-sdk-${{ env.VULKAN_VERSION }}-${{ runner.os }}-
+            vulkan-sdk-${{ env.VULKAN_VERSION }}-
+
       - name: Install Vulkan SDK
         id: get_vulkan
+        if: steps.cache-vulkan.outputs.cache-hit != 'true'
         run: |
           # Download Vulkan SDK installer
           curl.exe -o $env:RUNNER_TEMP/VulkanSDK-Installer.exe -L "https://sdk.lunarg.com/sdk/download/${env:VULKAN_VERSION}/windows/vulkansdk-windows-X64-${env:VULKAN_VERSION}.exe"
@@ -150,6 +161,16 @@ jobs:
             Write-Host "Warning: vulkaninfo.exe not found at expected path"
           }
 
+      - name: Set Vulkan environment (cache or fresh install)
+        id: set_vulkan_env
+        run: |
+          # Always ensure VULKAN_SDK env vars are set, regardless of cache hit
+          if (-not $env:VULKAN_SDK) {
+            Add-Content $env:GITHUB_ENV "VULKAN_SDK=C:\VulkanSDK\${env:VULKAN_VERSION}"
+            Add-Content $env:GITHUB_PATH "C:\VulkanSDK\${env:VULKAN_VERSION}\bin"
+          }
+          Write-Host "VULKAN_SDK=$env:VULKAN_SDK"
+
       - name: Configure CMake with Vulkan + LLVM toolchain
         id: cmake_configure
         shell: cmd
@@ -168,7 +189,7 @@ jobs:
             -DLLAMA_BUILD_BORINGSSL=ON ^
             -DCMAKE_C_COMPILER_LAUNCHER=ccache ^
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache ^
-            -DCMAKE_PREFIX_PATH="C:\VulkanSDK\%VULKAN_VERSION%"
+            -DCMAKE_PREFIX_PATH="%VULKAN_SDK%"
 
       - name: Build llama.cpp
         id: cmake_build
