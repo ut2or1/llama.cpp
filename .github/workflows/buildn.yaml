@@ -151,7 +151,7 @@ jobs:
         id: cmake_configure
         shell: cmd
         run: |
-          call "C:\Program Files\Microsoft Visual Studio\2026\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=amd64 -host_arch=amd64
+          call "C:\Program Files\Microsoft Visual Studio\18\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=amd64 -host_arch=amd64
           cmake -S . -B build ^
             -G "Ninja" ^
             -DCMAKE_BUILD_TYPE=Release ^
@@ -172,7 +172,7 @@ jobs:
         id: cmake_build
         shell: cmd
         run: |
-          call "C:\Program Files\Microsoft Visual Studio\2026\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=amd64 -host_arch=amd64
+          call "C:\Program Files\Microsoft Visual Studio\18\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=amd64 -host_arch=amd64
           cmake --build build --config Release -j %NUMBER_OF_PROCESSORS%
 
       - name: Upload build artifacts
