@@ -185,7 +185,15 @@ jobs:
             -DGGML_BACKEND_DL=ON ^
             -DGGML_CPU_ALL_VARIANTS=ON ^
             -DGGML_RPC=ON ^
+            -DGGML_CPU=ON ^
             -DLLAMA_BUILD_SERVER=ON ^
+            -DLLAMA_BUILD_TESTS=OFF ^
+            -DGGML_STATIC=ON ^
+            -DGGML_LTO=ON ^
+            -DGGML_LLAMAFILE=ON ^
+            -DGGML_LLAMAFILE_DEFAULT=ON ^
+            -DGGML_ACCELERATE=ON ^
+            -DGGML_OPENMP=ON ^
             -DLLAMA_BUILD_BORINGSSL=ON ^
             -DCMAKE_C_COMPILER_LAUNCHER=ccache ^
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache ^
