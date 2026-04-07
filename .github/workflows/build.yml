@@ -2,6 +2,11 @@ name: CI
 
 on:
   workflow_dispatch: # allows manual triggering
+  inputs:
+      reason:
+        description: 'Причина перезапуска'
+        required: false
+        default: ''
   push:
     branches:
       - master
