@@ -5,7 +5,12 @@
 name: Build Windows AMD64 Vulkan (LLVM)
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # allows manual triggering
+  inputs:
+      reason:
+        description: 'Reason'
+        required: false
+        default: ''
   push:
     branches: [feat/ci]
     paths:
