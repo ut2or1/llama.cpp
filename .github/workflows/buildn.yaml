@@ -240,7 +240,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: llama-windows-x64-vulkan-llvm
+          name: llama-windows-x64-vulkan-llvm-${{ github.run_number }}
           path: ${{ env.ARTIFACT_ARCHIVE }}
           retention-days: 7
           if-no-files-found: warn
@@ -249,7 +249,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: test-logs-windows-vulkan-llvm-${{ github.run_number }}
+          name: test-logs-windows-vulkan-llvm
           path: |
             build/Testing/Temporary/
             vulkan_test.log
