@@ -223,7 +223,8 @@ jobs:
           }
           
           # Create archive with maximum compression (LZMA2, level 9)
-          $archiveName = "llama-windows-x64-vulkan-llvm-bin.7z"
+          $buildNumber = "${{ github.run_number }}"
+          $archiveName = "llama-windows-x64-vulkan-llvm-bin-${buildNumber}.7z"
           $sourcePath = "build/bin"
           
           Write-Host "Compressing $sourcePath to $archiveName with maximum compression..."
