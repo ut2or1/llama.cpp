@@ -223,8 +223,7 @@ jobs:
           }
           
           # Create archive with maximum compression (LZMA2, level 9)
-          $buildNumber = "${{ github.run_number }}"
-          $archiveName = "llama-windows-x64-vulkan-llvm-bin-${buildNumber}.7z"
+          $archiveName = "llama-windows-x64-vulkan-llvm-bin.7z"
           $sourcePath = "build/bin"
           
           Write-Host "Compressing $sourcePath to $archiveName with maximum compression..."
@@ -250,7 +249,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: test-logs-windows-vulkan-llvm
+          name: test-logs-windows-vulkan-llvm-${{ github.run_number }}
           path: |
             build/Testing/Temporary/
             vulkan_test.log
