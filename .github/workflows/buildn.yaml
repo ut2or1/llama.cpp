@@ -11,6 +11,10 @@ on:
         description: 'Reason'
         required: false
         default: ''
+      commit_sha:
+        description: 'Commit SHA to build (optional, leave empty for trigger commit)'
+        required: false
+        default: ''
   push:
     branches: [feat/ci]
     paths:
@@ -85,6 +89,7 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
+          ref: ${{ inputs.commit_sha || github.sha }}
 
       - name: Setup ccache
         uses: ggml-org/ccache-action@v1.2.21
