@@ -1,0 +1,190 @@
+# .github/workflows/build-commit.yaml
+# Manual build for specific commit - Windows AMD64 Vulkan (LLVM)
+# For manual performance regression investigation
+
+name: Build Commit Artifact (Windows Vulkan LLVM)
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: 'Commit SHA to build (leave empty for HEAD)'
+        required: false
+        default: ''
+      reason:
+        description: 'Reason for build (optional, for tracking)'
+        required: false
+        default: ''
+
+concurrency:
+  group: ${{ github.workflow }}-manual-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  VULKAN_VERSION: 1.4.341.1
+  GGML_NLOOP: 3
+  GGML_N_THREADS: 1
+  LLAMA_LOG_COLORS: 1
+  LLAMA_LOG_PREFIX: 1
+  LLAMA_LOG_TIMESTAMPS: 1
+
+jobs:
+  build-commit-artifact:
+    name: Build ${{ inputs.commit_sha != '' && inputs.commit_sha || 'HEAD' }}
+    runs-on: windows-2025-vs2026
+
+    env:
+      CMAKE_DEFINES: >-
+        -G "Ninja"
+        -DCMAKE_BUILD_TYPE=Release
+        -DCMAKE_TOOLCHAIN_FILE=cmake/x64-windows-llvm.cmake
+        -DGGML_VULKAN=ON
+        -DGGML_NATIVE=OFF
+        -DGGML_BACKEND_DL=ON
+        -DGGML_CPU_ALL_VARIANTS=ON
+        -DGGML_RPC=ON
+        -DLLAMA_BUILD_SERVER=ON
+        -DLLAMA_BUILD_BORINGSSL=ON
+
+    defaults:
+      run:
+        shell: powershell
+
+    steps:
+      - name: Clone repository at specific commit
+        id: checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.commit_sha || github.sha }}
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Show build context
+        run: |
+          $commit = "${{ steps.checkout.outputs.commit }}"
+          $shortSha = if ($commit.Length -gt 7) { $commit.Substring(0,7) } else { $commit }
+          Write-Host "🔧 Building commit: $commit"
+          Write-Host "🆔 Short SHA: $shortSha"
+          Write-Host "📝 Reason: ${{ inputs.reason || 'Not specified' }}"
+          Write-Host "🔢 Run #${{ github.run_number }} (ID: ${{ github.run_id }})"
+          Add-Content $env:GITHUB_ENV "SHORT_SHA=$shortSha"
+          Add-Content $env:GITHUB_ENV "FULL_COMMIT_SHA=$commit"
+
+      - name: Setup ccache (read-only for manual builds)
+        uses: ggml-org/ccache-action@v1.2.21
+        with:
+          key: windows-commit-build-${{ env.VULKAN_VERSION }}
+          variant: ccache
+          evict-old-files: 1d
+          save: false
+          max-size: 2G
+
+      - name: Install Ninja
+        run: |
+          choco install ninja --no-progress -y
+          echo "C:/ProgramData/chocolatey/bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Setup Visual Studio environment
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path $vswhere)) { Write-Error "vswhere not found"; exit 1 }
+          $vsInstallPath = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -property installationPath
+          if (-not $vsInstallPath) { Write-Error "Visual Studio installation not found"; exit 1 }
+          $vsDevCmd = Join-Path $vsInstallPath "Common7\Tools\VsDevCmd.bat"
+          if (-not (Test-Path $vsDevCmd)) { Write-Error "VsDevCmd.bat not found at $vsDevCmd"; exit 1 }
+          Write-Host "Using VS at: $vsInstallPath"
+          & cmd /c "`"$vsDevCmd`" -arch=amd64 -host_arch=amd64" | Out-Null
+          Add-Content $env:GITHUB_ENV "VS_INSTALL_PATH=$vsInstallPath"
+          Add-Content $env:GITHUB_ENV "VSCMD_ARG_TGT_ARCH=amd64"
+          Add-Content $env:GITHUB_ENV "VSCMD_ARG_HOST_ARCH=amd64"
+          Add-Content $env:GITHUB_PATH ($env:PATH)
+
+      - name: Cache Vulkan SDK
+        uses: actions/cache@v5
+        with:
+          path: C:\VulkanSDK
+          key: vulkan-sdk-${{ env.VULKAN_VERSION }}-${{ runner.os }}-${{ runner.arch }}
+          restore-keys: |
+            vulkan-sdk-${{ env.VULKAN_VERSION }}-${{ runner.os }}-
+
+      - name: Install Vulkan SDK (if not cached)
+        if: steps.cache-vulkan.outputs.cache-hit != 'true'
+        run: |
+          curl.exe -o $env:RUNNER_TEMP/VulkanSDK-Installer.exe -L "https://sdk.lunarg.com/sdk/download/${env:VULKAN_VERSION}/windows/vulkansdk-windows-X64-${env:VULKAN_VERSION}.exe"
+          & "$env:RUNNER_TEMP\VulkanSDK-Installer.exe" --accept-licenses --default-answer --confirm-command install
+          Add-Content $env:GITHUB_ENV "VULKAN_SDK=C:\VulkanSDK\${env:VULKAN_VERSION}"
+          Add-Content $env:GITHUB_PATH "C:\VulkanSDK\${env:VULKAN_VERSION}\bin"
+          Write-Host "✅ Vulkan SDK ${env:VULKAN_VERSION} installed"
+
+      - name: Set Vulkan environment
+        run: |
+          if (-not $env:VULKAN_SDK) {
+            Add-Content $env:GITHUB_ENV "VULKAN_SDK=C:\VulkanSDK\${env:VULKAN_VERSION}"
+            Add-Content $env:GITHUB_PATH "C:\VulkanSDK\${env:VULKAN_VERSION}\bin"
+          }
+          Write-Host "VULKAN_SDK=$env:VULKAN_SDK"
+
+      - name: Configure CMake with Vulkan + LLVM toolchain
+        shell: cmd
+        run: |
+          call "%VS_INSTALL_PATH%\Common7\Tools\VsDevCmd.bat" -arch=amd64 -host_arch=amd64
+          cmake -S . -B build ^
+            -G "Ninja" ^
+            -DCMAKE_BUILD_TYPE=Release ^
+            -DCMAKE_TOOLCHAIN_FILE=cmake/x64-windows-llvm.cmake ^
+            -DGGML_VULKAN=ON ^
+            -DGGML_NATIVE=OFF ^
+            -DGGML_BACKEND_DL=ON ^
+            -DGGML_CPU_ALL_VARIANTS=ON ^
+            -DGGML_RPC=ON ^
+            -DGGML_CPU=ON ^
+            -DLLAMA_BUILD_SERVER=ON ^
+            -DLLAMA_BUILD_TESTS=OFF ^
+            -DGGML_STATIC=ON ^
+            -DGGML_LTO=ON ^
+            -DGGML_LLAMAFILE=ON ^
+            -DGGML_LLAMAFILE_DEFAULT=ON ^
+            -DGGML_ACCELERATE=ON ^
+            -DGGML_OPENMP=ON ^
+            -DLLAMA_BUILD_BORINGSSL=ON ^
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache ^
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache ^
+            -DCMAKE_PREFIX_PATH="%VULKAN_SDK%"
+
+      - name: Build llama.cpp
+        shell: cmd
+        run: |
+          call "%VS_INSTALL_PATH%\Common7\Tools\VsDevCmd.bat" -arch=amd64 -host_arch=amd64
+          cmake --build build --config Release -j %NUMBER_OF_PROCESSORS%
+
+      - name: Compress build/bin to 7z archive
+        id: compress_artifact
+        run: |
+          $sevenZip = "7z"
+          if (-not (Get-Command $sevenZip -ErrorAction SilentlyContinue)) {
+            choco install 7zip --no-progress -y
+            $sevenZip = "C:\Program Files\7-Zip\7z.exe"
+          }
+          
+          # Имя архива с коротким SHA коммита
+          $shortSha = $env:SHORT_SHA
+          $archiveName = "llama-windows-x64-vulkan-llvm-bin-${shortSha}.7z"
+          $sourcePath = "build/bin"
+          
+          Write-Host "📦 Creating archive: $archiveName"
+          & $sevenZip a -t7z "$archiveName" "$sourcePath\*" `
+            -m0=lzma2 -mx=9 -mfb=64 -md=32m -ms=on `
+            -sse -slt -y
+          
+          $archiveSize = (Get-Item $archiveName).Length / 1MB
+          Write-Host "✅ Archive: $archiveName ($([math]::Round($archiveSize, 2)) MB)"
+          Add-Content $env:GITHUB_ENV "ARTIFACT_ARCHIVE=$archiveName"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          # Имя артефакта с полным SHA для уникальности
+          name: llama-windows-x64-vulkan-llvm-${{ env.FULL_COMMIT_SHA }}
+          path: ${{ env.ARTIFACT_ARCHIVE }}
+          retention-days: 14
+          if-no-files-found: warn
