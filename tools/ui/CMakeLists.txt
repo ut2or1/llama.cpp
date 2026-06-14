@@ -51,13 +51,13 @@ if(CMAKE_CROSSCOMPILING)
     # Check if host compiler is MSVC
     get_filename_component(HOST_CXX_NAME "${HOST_CXX_COMPILER}" NAME)
     if(HOST_CXX_NAME MATCHES "^cl(\\.exe)?$" OR HOST_CXX_COMPILER MATCHES "^cl(\\.exe)?$")
+        # Use response file to avoid command-line escaping issues on Windows
         add_custom_command(
             OUTPUT  "${LLAMA_UI_EMBED_EXE}"
-            COMMAND "${HOST_CXX_COMPILER}" /O2 /std:c++17
+            COMMAND "${HOST_CXX_COMPILER}" /O2 /std:c++17 /EHsc
                     /Fe"${LLAMA_UI_EMBED_EXE}" "${CMAKE_CURRENT_SOURCE_DIR}/embed.cpp"
             DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/embed.cpp"
             COMMENT "Building llama-ui-embed (host)"
-            VERBATIM
         )
     else()
         add_custom_command(
