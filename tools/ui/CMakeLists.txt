@@ -48,14 +48,27 @@ if(CMAKE_CROSSCOMPILING)
         set(LLAMA_UI_EMBED_EXE "${CMAKE_CURRENT_BINARY_DIR}/llama-ui-embed-host")
     endif()
 
-    add_custom_command(
-        OUTPUT  "${LLAMA_UI_EMBED_EXE}"
-        COMMAND "${HOST_CXX_COMPILER}" -O2 -std=c++17
-                -o "${LLAMA_UI_EMBED_EXE}" "${CMAKE_CURRENT_SOURCE_DIR}/embed.cpp"
-        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/embed.cpp"
-        COMMENT "Building llama-ui-embed (host)"
-        VERBATIM
-    )
+    # Check if host compiler is MSVC
+    get_filename_component(HOST_CXX_NAME "${HOST_CXX_COMPILER}" NAME)
+    if(HOST_CXX_NAME MATCHES "^cl(\\.exe)?$" OR HOST_CXX_COMPILER MATCHES "^cl(\\.exe)?$")
+        add_custom_command(
+            OUTPUT  "${LLAMA_UI_EMBED_EXE}"
+            COMMAND "${HOST_CXX_COMPILER}" /O2 /std:c++17
+                    /Fe"${LLAMA_UI_EMBED_EXE}" "${CMAKE_CURRENT_SOURCE_DIR}/embed.cpp"
+            DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/embed.cpp"
+            COMMENT "Building llama-ui-embed (host)"
+            VERBATIM
+        )
+    else()
+        add_custom_command(
+            OUTPUT  "${LLAMA_UI_EMBED_EXE}"
+            COMMAND "${HOST_CXX_COMPILER}" -O2 -std=c++17
+                    -o "${LLAMA_UI_EMBED_EXE}" "${CMAKE_CURRENT_SOURCE_DIR}/embed.cpp"
+            DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/embed.cpp"
+            COMMENT "Building llama-ui-embed (host)"
+            VERBATIM
+        )
+    endif()
 
     # phony target to tie it into the dependency graph
     add_custom_target(llama-ui-embed DEPENDS "${LLAMA_UI_EMBED_EXE}")
