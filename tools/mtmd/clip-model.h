@@ -165,6 +165,12 @@ struct clip_hparams {
     std::vector<float> mel_filters;
     std::vector<float> window;
 
+    // nemotron transcribe
+    int32_t audio_rope_dims = 0;
+    int32_t spk_n_embd      = 0;
+    int32_t spk_n_layer     = 0;
+    int32_t spk_n_head      = 0;
+
     // mimo-audio-tokenizer: residual vector quantizer
     int32_t rvq_num_quantizers = 0;
     std::vector<int32_t> rvq_codebook_size; // per-quantizer bin count (ragged, e.g. 1024/1024/256/128x17)
@@ -174,6 +180,12 @@ struct clip_hparams {
 
     // name of the weight variant, some pipelines tune themselves on it
     std::string gen_model_variant;
+
+    // sampling defaults of the generated audio: greedy, no top-k, no repetition penalty
+    float   gen_temp           = 0.0f;
+    int32_t gen_top_k          = 0;
+    float   gen_penalty_repeat = 1.0f;
+    int32_t gen_penalty_last_n = 0;
 
     // pocket-tts
     static constexpr int32_t pockettts_max_spk_seconds = 30;
@@ -195,6 +207,7 @@ struct clip_hparams {
     int32_t wav_dac_n_block      = 0;
     int32_t wav_dac_n_res        = 0;
     int32_t wav_tfm_swa          = 0; // pre_transformer's KV cache size, in frames
+    int32_t wav_frame_stack      = 0; // lfm3a codec: decoder positions per frame
 
     // mimo-v2.5: LLM-side connector (input_local_transformer)
     int32_t audio_local_n_layer = 0;
@@ -285,6 +298,11 @@ struct clip_layer {
 
     ggml_tensor * k_norm = nullptr;
     ggml_tensor * q_norm = nullptr;
+    ggml_tensor * k_norm_b = nullptr;
+    ggml_tensor * q_norm_b = nullptr;
+
+    // lfm3: per-head sigmoid gate on the attention output
+    ggml_tensor * attn_gate_w = nullptr;
 
     ggml_tensor * attn_post_norm_w = nullptr;
 
@@ -324,6 +342,11 @@ struct clip_layer {
     ggml_tensor * deepstack_fc1_b = nullptr;
     ggml_tensor * deepstack_fc2_w = nullptr;
     ggml_tensor * deepstack_fc2_b = nullptr;
+
+    // lfm3vl conv layers
+    ggml_tensor * conv2d_in_proj_w  = nullptr;
+    ggml_tensor * conv2d_spatial_w  = nullptr; // may be nullptr
+    ggml_tensor * conv2d_out_proj_w = nullptr;
 
     // sam rel_pos
     ggml_tensor * rel_pos_w = nullptr;
@@ -561,6 +584,7 @@ struct clip_code2wav {
     // quantizer: RVQ codebook decode
     ggml_tensor * quant_first_in_w  = nullptr; // semantic RVQ, in_proj (1x1 conv, loaded as 2D)
     ggml_tensor * quant_first_out_w = nullptr;
+    ggml_tensor * quant_first_out_b = nullptr;
     ggml_tensor * quant_first_cb_w  = nullptr; // codebook (1 layer)
     ggml_tensor * quant_rest_in_w   = nullptr; // acoustic RVQ
     ggml_tensor * quant_rest_out_w  = nullptr;
@@ -786,6 +810,9 @@ struct clip_model {
     ggml_tensor * yasa_vision_pos_embed = nullptr;
     std::vector<yasa2_stage> yasa_stages;
 
+    // lfm3vl
+    ggml_tensor * lfm3vl_embedding_norm_w = nullptr;
+
     // pixtral, glm4v
     ggml_tensor * token_embd_img_break = nullptr;
 
@@ -844,6 +871,10 @@ struct clip_model {
     ggml_tensor * gen_code_out_embd_w = nullptr; // codebook-0 embedding, fed back into the talker
     ggml_tensor * gen_code_norm_w     = nullptr; // final norm
 
+    // lfm3a depthformer (MaskGIT)
+    ggml_tensor * gen_code_head_norm_w = nullptr; // per-codebook norm before the tied head, merged 2D
+    ggml_tensor * gen_code_mask_embd   = nullptr;
+
     // qwen3tts code2wav: RVQ codes -> raw PCM
     clip_code2wav c2w;
 
@@ -864,6 +895,9 @@ struct clip_model {
     ggml_tensor * gen_quant_out_w = nullptr; // latent -> decoder dim
     ggml_tensor * gen_upsample_w  = nullptr; // depthwise convtr, frame rate -> encoder frame rate
     std::vector<clip_layer> gen_tfm_layers; // mimi decoder_transformer
+
+    // predefined voices, no rows if the voice is named in the prompt (lfm3a)
+    std::map<std::string, std::vector<float>> gen_voices;
 
     // soprano: Vocos decoder, hidden states -> STFT coefficients
     clip_vocos vocos;
@@ -899,6 +933,28 @@ struct clip_model {
     int32_t n_sam_layers = 12; // used by deepseek-ocr sam encoder
 
     std::vector<clip_layer> sam_layers;
+
+    // nemotron transcribe: speaker expert, Sortformer head, fusion
+    std::vector<clip_layer> spk_layers;
+    ggml_tensor * spk_inp_proj_w     = nullptr;
+    ggml_tensor * spk_pre_ln_w       = nullptr;
+    ggml_tensor * spk_pre_ln_b       = nullptr;
+    ggml_tensor * spk_post_ln_w      = nullptr;
+    ggml_tensor * spk_post_ln_b      = nullptr;
+    ggml_tensor * spk_head_proj_w    = nullptr;
+    ggml_tensor * spk_head_proj_b    = nullptr;
+    ggml_tensor * spk_head_up_w      = nullptr;
+    ggml_tensor * spk_head_up_b      = nullptr;
+    ggml_tensor * spk_head_fc1_w     = nullptr;
+    ggml_tensor * spk_head_fc1_b     = nullptr;
+    ggml_tensor * spk_head_fc2_w     = nullptr;
+    ggml_tensor * spk_head_fc2_b     = nullptr;
+    ggml_tensor * fusion_asr_norm_w  = nullptr;
+    ggml_tensor * fusion_asr_norm_b  = nullptr;
+    ggml_tensor * fusion_spk_norm_w  = nullptr;
+    ggml_tensor * fusion_spk_norm_b  = nullptr;
+    ggml_tensor * fusion_spk_kernel  = nullptr;
+    std::vector<float> spk_sil_emb;
 
     // deepseek-ocr-2
     ggml_tensor * resample_query_768 = nullptr;

@@ -2,6 +2,7 @@
 
 #include "../clip-graph.h"
 
+#include <functional>
 #include <map>
 #include <string>
 #include <utility>
@@ -29,6 +30,22 @@ struct clip_graph_gemma4uv : clip_graph {
     ggml_cgraph * build() override;
 };
 
+struct clip_graph_nemotron_transcribe : clip_graph {
+    const clip_enc_state * state; // nullptr during warmup
+    clip_graph_nemotron_transcribe(clip_ctx * ctx, const clip_image_f32 & img, const clip_enc_state * state)
+        : clip_graph(ctx, img), state(state) {}
+    ggml_cgraph * build() override;
+    ggml_tensor * build_spk_encoder(ggml_tensor * cur, ggml_tensor * pos);
+
+    // one recording: encodes its windows in turn, carrying the speaker state between them
+    static bool encode_windows(clip_ctx * ctx, const clip_model & model, clip_encode_params * params);
+
+    // NeMo ParallelExpertEncoder online defaults, in output frames: 40 s windows with 4 s of context on each side
+    static constexpr int window_core  = 500;
+    static constexpr int window_left  = 50;
+    static constexpr int window_right = 50;
+};
+
 struct clip_graph_pixtral : clip_graph {
     clip_graph_pixtral(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
     ggml_cgraph * build() override;
@@ -51,6 +68,11 @@ struct clip_graph_qwen3vl : clip_graph_qwen2vl {
 
 struct clip_graph_sensenova_u1 : clip_graph {
     clip_graph_sensenova_u1(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
+    ggml_cgraph * build() override;
+};
+
+struct clip_graph_lfm3vl : clip_graph {
+    clip_graph_lfm3vl(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
     ggml_cgraph * build() override;
 };
 
@@ -181,6 +203,11 @@ struct clip_graph_deepseekocr2 : clip_graph_deepseekocr {
 
 struct clip_graph_conformer : clip_graph {
     clip_graph_conformer(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
+    ggml_cgraph * build() override;
+};
+
+struct clip_graph_lfm3a : clip_graph {
+    clip_graph_lfm3a(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
     ggml_cgraph * build() override;
 };
 
@@ -427,6 +454,39 @@ struct clip_graph_soprano : clip_graph {
     static constexpr int upscale = 4;
     int n_frames;
 };
+
+//
+// LFM3-Audio generation:
+// GEN_CODE = one MaskGIT pass of the depthformer, or only the feedback embedding once all codes are known
+// GEN_WAV  = liquid-codec decoder, a window of frames -> polar STFT frames
+//
+struct clip_graph_lfm3a_gen : clip_graph {
+    clip_graph_lfm3a_gen(clip_ctx * ctx, const clip_image_f32 & img, clip_gen_process_type gen_process, bool all_known, int n_frames)
+        : clip_graph(ctx, img), gen_process(gen_process), all_known(all_known), n_frames(n_frames) {}
+    ggml_cgraph * build() override;
+
+    clip_gen_process_type gen_process;
+    bool all_known; // GEN_CODE only
+    int  n_frames;  // GEN_WAV only
+
+    ggml_tensor * build_gen_code();
+    ggml_tensor * build_gen_wav();
+
+    ggml_tensor * build_lfm_layer(ggml_tensor * inpL, const clip_layer & layer, float eps, int il,
+                                  const std::function<ggml_tensor *(ggml_tensor *)> & op);
+    ggml_tensor * build_lfm_attn(ggml_tensor * cur, const clip_layer & layer, int n_head, int n_head_kv,
+                                 float eps, float rope_theta, int il, ggml_tensor * inp_pos,
+                                 ggml_tensor * kq_mask, ggml_tensor * k_cache, ggml_tensor * v_cache,
+                                 ggml_tensor ** k_all, ggml_tensor ** v_all);
+    ggml_tensor * build_lfm_conv(ggml_tensor * cur, const clip_layer & layer, int il,
+                                 ggml_tensor * conv_state, ggml_tensor ** conv_state_out);
+};
+
+// state slots of the streaming codec decoder (lfm3a_gen GEN_WAV)
+std::vector<c2w_state_slot> list_lfm3a_gen_state_slots(const clip_hparams & hparams, const clip_model & model);
+
+// state slots of the streaming LFM3-Audio encoder (lfm3a)
+std::vector<c2w_state_slot> list_lfm3a_state_slots(const clip_hparams & hparams, const clip_model & model);
 
 struct clip_graph_kimik25 : clip_graph {
     clip_graph_kimik25(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
